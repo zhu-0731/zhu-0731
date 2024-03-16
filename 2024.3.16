@@ -1,0 +1,166 @@
+** day:2024.3.16 ** (maybe 3.17,cause it's 00:12 of 3.17 in China)
+>> today I learned something called smart pointers
+智能指针（Smart pointers）是C++库提供的一种模板类，它们封装了原始指针，通过自动管理内存的生命周期来减少内存泄露和资源管理错误。它们提供了类似指针的行为，同时加入了自动内存管理的功能。在C++标准库中，主要有三种智能指针：
+## 介绍
+1. **std::unique_ptr**: 唯一所有权智能指针。`std::unique_ptr`保持对分配的内存的唯一所有权，意味着没有两个`std::unique_ptr`可以同时指向同一资源。当`std::unique_ptr`被销毁时（例如，当它离开作用域时），它指向的内存也会被自动释放。`std::unique_ptr`不允许复制，只能移动，以确保其唯一所有权。它通常用于管理资源的地方，其中资源只应该有一个所有者。
+
+   ```cpp
+   std::unique_ptr<int> pInt(new int(10)); // 一个整数的唯一所有权
+   ```
+
+2. **std::shared_ptr**: 共享所有权智能指针。与`std::unique_ptr`不同的是，`std::shared_ptr`允许多个指针实例指向同一资源。它通过参考计数机制来跟踪有多少个`std::shared_ptr`共享同一个资源。只有当最后一个`std::shared_ptr`被销毁时，才会销毁资源。
+
+   ```cpp
+   std::shared_ptr<int> pShared1(new int(10));
+   std::shared_ptr<int> pShared2 = pShared1; // pShared2现在与pShared1共享资源
+   ```
+
+3. **std::weak_ptr**: 弱引用智能指针。`std::weak_ptr`用来解决`std::shared_ptr`可能导致的循环引用问题。它不增加对象的引用计数，因此不会阻止其指向的资源被释放。它主要用于在资源有可能被其他`std::shared_ptr`拥有的情况下观察资源。
+
+   ```cpp
+   std::weak_ptr<int> pWeak; // 开始时为空
+   {
+       std::shared_ptr<int> pShared(new int(10));
+       pWeak = pShared; // pWeak观察pShared指向的整数
+   } // pShared被销毁，它指向的内存也随之释放，尽管pWeak仍然存在
+   ```
+
+__智能指针的好处是它们帮助避免忘记删除动态分配的内存，从而防止内存泄漏。这些智能指针还能帮助程序员更安全、更容易地管理资源，尤其在异常处理和多线程环境中。__
+
+## 应用场景
+场景1：函数返回动态分配的对象
+使用std::unique_ptr安全地从函数返回动态分配的对象，并确保即使在异常发生时也不会泄漏内存。
+```cpp
+std::unique_ptr<MyClass> createMyClass() {
+    return std::unique_ptr<MyClass>(new MyClass());
+}
+```
+场景2：资源管理
+使用std::shared_ptr进行资源管理，例如文件句柄或数据库连接，多个对象可能需要访问同一资源。
+```cpp
+std::shared_ptr<DatabaseConnection> dbConn = createDatabaseConnection();
+
+void useDatabase(std::shared_ptr<DatabaseConnection> conn) {
+    // 使用数据库连接...
+}
+```
+场景3：避免循环引用
+在构成复杂关系的对象间（比如树或图数据结构中的节点），使用std::weak_ptr避免循环引用，这些循环引用可能导致内存泄露。
+```cpp
+class Node {
+public:
+    std::shared_ptr<Node> parent;
+    std::vector<std::shared_ptr<Node>> children;
+    
+    // 添加一个孩子节点并设置父节点
+    void addChild(std::shared_ptr<Node> child) {
+        children.push_back(child);
+        child->parent = std::weak_ptr<Node>(shared_from_this());
+    }
+};
+```
+
+### 理解循环引用导致内存泄漏
+
+`std::shared_ptr`的基本工作原理:
+>`std::shared_ptr`是一种智能指针，它管理对象的生命周期并进行自动内存管理。它通过维护一个引用计数来跟踪有多少个智能指针指向同一个对象。每当一个新的`std::shared_ptr`被创建并指向该对象时，该对象的引用计数增加。当`std::shared_ptr`被销毁时，引用计数减少。若引用计数达到零，对象将被销毁并释放所占用的内存。
+
+现在，考虑两个类 `A` 和 `B`。类 `A` 有一个成员变量 `bPtr`，它是指向 `B` 的 `std::shared_ptr`；类 `B` 有一个成员变量 `aPtr`，它是指向 `A` 的 `std::shared_ptr`。
+
+在 `main` 函数中，我们执行以下操作：
+
+1. 创建一个指向 `A` 的 `std::shared_ptr`，名为 `a`。此时，`a` 的引用计数为 1。
+
+   ```cpp
+   std::shared_ptr<A> a = std::make_shared<A>();
+   ```
+
+2. 创建一个指向 `B` 的 `std::shared_ptr`，名为 `b`。此时，`b` 的引用计数为 1。
+
+   ```cpp
+   std::shared_ptr<B> b = std::make_shared<B>();
+   ```
+
+3. 将 `b` 赋值给 `a` 的成员变量 `bPtr`。由于 `bPtr` 是 `std::shared_ptr`，`b` 的引用计数增加到 2。
+
+   ```cpp
+   a->bPtr = b;
+   ```
+
+4. 将 `a` 赋值给 `b` 的成员变量 `aPtr`。由于 `aPtr` 是 `std::shared_ptr`，`a` 的引用计数增加到 2。
+
+   ```cpp
+   b->aPtr = a;
+   ```
+当 main 函数结束时，a 和 b 在作用域结束时被销毁，它们的引用计数应该减少。但由于它们互相持有对方的引用，彼此的引用计数都不会降至零。因此，它们指向的对象永远不会被删除，这就是循环引用导致内存泄漏的情况。
+> 复盘一下：main函数开始时，创建了两个std::shared_ptr对象：a指向类型A的新对象，b指向类型B的新对象。此时：
+a的引用计数 = 1（指向A的实例）
+b的引用计数 = 1（指向B的实例）
+然后，我们给a所指的对象里的bPtr成员变量赋值，指向b。我们也给b所指的对象里的aPtr成员变量赋值，指向a。这将导致：
+a的引用计数 = 2（a本身和b所指的对象的aPtr）
+b的引用计数 = 2（b本身和a所指的对象的bPtr）
+当main函数结束时，a和b两个std::shared_ptr对象都将被销毁。因为它们都是局部变量，所以作用域结束会自动调用它们的析构函数。这会导致每个对象的引用计数减少1。不过，因为它们是相互引用的：
+a的引用计数从2变为1（b中的aPtr仍持有对a的引用）
+b的引用计数从2变为1（a中的bPtr仍持有对b的引用）
+
+为了防止这种情况发生，应该使用`std::weak_ptr`来替换其中一个（或多个）相互引用的`std::shared_ptr`。`std::weak_ptr`允许你访问对象，但不增加引用计数，从而避免循环引用。
+
+改进后的代码会是这样：
+
+```cpp
+class B;
+
+class A {
+public:
+    std::weak_ptr<B> bPtr; // 使用 weak_ptr
+    // ...
+};
+
+class B {
+public:
+    std::weak_ptr<A> aPtr; // 使用 weak_ptr
+    // ...
+};
+
+int main() {
+    std::shared_ptr<A> a = std::make_shared<A>();
+    std::shared_ptr<B> b = std::make_shared<B>();
+
+    a->bPtr = b;
+    b->aPtr = a;
+
+    // 没有形成循环引用，引用计数可以正确变成零
+}
+```
+在这个修正的例子中，当作用域结束且`a`和`b`被销毁时，`A`和`B`对象虽然仍互相引用，但因为是通过`std::weak_ptr`，它们的引用计数不会增加，最终都能正确地减少到零，对象将被销毁，避免了内存泄漏。
+
+场景4：延迟初始化（使用`unique_ptr`主要是为了**防止手动管理内存分配和释放**）
+使用std::unique_ptr进行延迟初始化，直到实际需要对象时才创建它。
+```cpp
+class LazyInitExample {
+private:
+    std::unique_ptr<ExpensiveObject> resource;
+public:
+    ExpensiveObject& getResource() {
+        if (!resource) {
+            resource = std::unique_ptr<ExpensiveObject>(new ExpensiveObject());
+        }
+        return *resource;
+    }
+};
+```
+场景5：多线程应用**想到了游戏皮肤。。。**
+在多线程应用程序中，使用std::shared_ptr安全地在多个线程之间共享对象，而无需担心对象何时被销毁。
+```cpp
+std::shared_ptr<MyClass> sharedObject = std::make_shared<MyClass>();
+
+void workerThread(std::shared_ptr<MyClass> obj) {
+    // 在这里使用共享对象...
+}
+
+std::thread t1(workerThread, sharedObject);
+std::thread t2(workerThread, sharedObject);
+t1.join();
+t2.join();
+```
+##嗯，跟C比确实是有点智能在的
